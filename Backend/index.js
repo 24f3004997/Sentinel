@@ -27,7 +27,7 @@ app.use("/api", adminRoutes);
 /* 🔥 SABSE LAST ME YE ADD KAR */
 app.use(express.static(path.join(__dirname, "../Frontend/build")));
 
-app.get("*", (req, res) => {
+app.use((req, res) => {
   res.sendFile(path.join(__dirname, "../Frontend/build/index.html"));
 });
 
