@@ -1,8 +1,10 @@
 require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const admin = require('./src/config/firebase-admin'); // We will create this next
+const path = require('path');
+const admin = require('./src/config/firebase-admin');
 
 const app = express();
 
@@ -15,11 +17,19 @@ app.get('/', (req, res) => {
   res.send('Crisis Response Backend is Running...');
 });
 
-// Import Routes (Inhe hum next step mein banayenge)
+// Routes
 const authRoutes = require('./src/routes/authRoutes');
 app.use('/api/auth', authRoutes);
+
 const adminRoutes = require('./src/routes/adminRoutes');
 app.use("/api", adminRoutes);
+
+/* 🔥 SABSE LAST ME YE ADD KAR */
+app.use(express.static(path.join(__dirname, "../Frontend/build")));
+
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "../Frontend/build/index.html"));
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
