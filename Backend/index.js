@@ -12,11 +12,6 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// Basic Route
-app.get('/', (req, res) => {
-  res.send('Crisis Response Backend is Running...');
-});
-
 // Routes
 const authRoutes = require('./src/routes/authRoutes');
 app.use('/api/auth', authRoutes);
@@ -24,11 +19,10 @@ app.use('/api/auth', authRoutes);
 const adminRoutes = require('./src/routes/adminRoutes');
 app.use("/api", adminRoutes);
 
-/* 🔥 SABSE LAST ME YE ADD KAR */
-app.use(express.static(path.join(__dirname, "../Frontend/build")));
+app.use(express.static(path.join(__dirname, "../Frontend/dist")));
 
 app.use((req, res) => {
-  res.sendFile(path.join(__dirname, "../Frontend/build/index.html"));
+  res.sendFile(path.join(__dirname, "../Frontend/dist/index.html"));
 });
 
 const PORT = process.env.PORT || 5000;
