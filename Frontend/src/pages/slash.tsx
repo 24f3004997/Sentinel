@@ -7,8 +7,10 @@ const Splash = () => {
   const navigate = useNavigate();
   const { t } = useI18n();
   useEffect(() => {
-    const t = setTimeout(() => navigate("/login"), 3000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => {
+      navigate("/home");
+    }, 3000);
+    return () => clearTimeout(timer);
   }, [navigate]);
 
   return (
