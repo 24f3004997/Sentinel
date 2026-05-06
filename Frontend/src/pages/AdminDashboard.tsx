@@ -700,7 +700,7 @@ const fetchAIInsight = async () => {
       progress: 70
     };
 
-    const response = await fetch('http://localhost:5000/api/get-ai-insight', {
+    const response = await fetch('https://sentinel-5rnu.onrender.com/api/get-ai-insight', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(statsContext)
