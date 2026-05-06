@@ -255,6 +255,7 @@ import { MoreVertical, X, XCircle, AlertCircle} from 'lucide-react';
 import { Activity, Briefcase} from "lucide-react";  
 import { RefreshCw } from 'lucide-react';
 import { toast } from "sonner";
+import {orderBy, limit} from "firebase/firestore";
 // import { doc, updateDoc, onSnapshot } from "firebase/firestore";
 // import { db } from "../config/firebase";
 // import { collection, onSnapshot, doc } from "firebase/firestore";
@@ -284,7 +285,7 @@ const cardHover: Variants = {
 // const [stats, setStats] = useState({ total: 0, evacuated: 0, trapped: 0 });
 // const [trappedUsers, setTrappedUsers] = useState(
 const AdminDashboard = () => {
-  const [stats, setStats] = useState({ total: 0, evacuated: 0, trapped: 0, staffActive: 0 });
+  const [stats, setStats] = useState({ total: 0, evacuated: 0, trapped: 0, staffActive: 0, fullUserList: [] });
   const [trappedUsers, setTrappedUsers] = useState<any[]>([]);
   const [mapUrl, setMapUrl] = useState("");
   const [selectedFloor, setSelectedFloor] = useState("1F");
@@ -303,6 +304,18 @@ const [logs, setLogs] = useState([]);
 const [isAllRecordsOpen, setIsAllRecordsOpen] = useState(false);
 const [selectedLog, setSelectedLog] = useState(null);
 const [isEmergencyActive, setIsEmergencyActive] = useState(false);
+const [isEditing, setIsEditing] = useState(false);
+const [selectedZone, setSelectedZone] = useState<string | null>(null);
+const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
+const [modalTitle, setModalTitle] = useState("");
+const [filteredUsers, setFilteredUsers] = useState<any[]>([]);
+  
+  useEffect(() => {
+  localStorage.setItem("userRole", "admin"); // Dashboard khulte hi role save karo
+  // ... aapka baaki code
+}, []);
+
+
   useEffect(() => {
     // Check if db is defined to prevent crash
     if (!db) return;
@@ -324,7 +337,8 @@ const [isEmergencyActive, setIsEmergencyActive] = useState(false);
           total: usersList.length,
           evacuated: evacuated.length,
           trapped: trapped.length,
-          staffActive: activeStaff.length
+          staffActive: activeStaff.length,
+          fullUserList: usersList
         });
         setTrappedUsers(trapped);
       } catch (err) {
@@ -594,17 +608,42 @@ const handleAddMember = async (name, role, email) => {
     await logActivity(`New Staff member ${newMember.fullName} added to directory.`, "success", "Staff Update");
   } catch (e) { console.error(e); }
 };
+// useEffect(() => {
+//   // Agar aapne 'members' collection banayi hai toh yahan "members" likhein
+//   // Warna "users" collection use karein jaisa niche dikhaya hai
+//   const q = query(collection(db, "users"), where("role", "==", "staff"));
+
+//   const unsubscribe = onSnapshot(q, (snapshot) => {
+//     const membersList = snapshot.docs.map(doc => ({
+//       id: doc.id,
+//       ...doc.data()
+//     }));
+//     console.log("Total Staff Found with roleType:", membersList.length);
+//     setStaffMembers(membersList);
+//   });
+
+//   return () => unsubscribe();
+// }, []);
+
 useEffect(() => {
-  // Agar aapne 'members' collection banayi hai toh yahan "members" likhein
-  // Warna "users" collection use karein jaisa niche dikhaya hai
-  const q = query(collection(db, "users"), where("role", "==", "staff"));
+  // Sabhi users ko listen karein
+  const q = collection(db, "users");
 
   const unsubscribe = onSnapshot(q, (snapshot) => {
-    const membersList = snapshot.docs.map(doc => ({
+    const allUsers = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
-    }));
-    setStaffMembers(membersList);
+    })) as any[];
+    console.log("DEBUG - All Users from DB:", allUsers);
+
+    // ✅ Front-end Filter: Role 'staff' ho YA roleType 'staff' ho
+    const filteredStaff = allUsers.filter(user => 
+      user.role?.toLowerCase() === "staff" || 
+      user.roleType?.toLowerCase() === "staff"
+    );
+
+    console.log("Total Staff Found (Unified):", filteredStaff.length);
+    setStaffMembers(filteredStaff);
   });
 
   return () => unsubscribe();
@@ -616,40 +655,7 @@ useEffect(() => {
   });
   return () => unsub();
 }, []);
-const assignTaskToStaff = async (staffId, staffName) => {
-  // Hackathon ke liye simple prompt use kar sakte hain, ya ek modal bana sakte hain
-  const floor = prompt("Enter Floor Number (e.g., 4):");
-  const sector = prompt("Enter Sector (e.g., Sector-C):");
-  const task = prompt("Enter Task Description (e.g., Check Fire Exit):");
 
-  if (!floor || !sector) return;
-
-  try {
-    const staffRef = doc(db, "users", staffId);
-    await updateDoc(staffRef, {
-      currentAssignment: {
-        floor: floor,
-        sector: sector,
-        taskType: task || "Emergency Response",
-        status: "active",
-        assignedAt: serverTimestamp()
-      }
-    });
-    
-    // Activity log mein bhi entry daal dete hain taaki sabko pata chale
-    await addDoc(collection(db, "activity_log"), {
-      msg: `Task assigned to Staff: Floor ${floor} [${sector}]`,
-      type: "info",
-      label: "System Dispatch",
-      timestamp: serverTimestamp()
-    });
-
-    toast.success("Task assigned successfully!");
-  } catch (error) {
-    console.error("Assignment Error:", error);
-    toast.error("Failed to assign task.");
-  }
-};
 
 // 2. Add Contact Function
 const handleAddContact = async () => {
@@ -715,7 +721,9 @@ useEffect(() => {
 useEffect(() => {
   // Latest 5 logs ko real-time listen karein
   const q = query(
-    collection(db, "activity_log")
+    collection(db, "activity_log"),
+    orderBy("timestamp", "desc"),
+    limit(5)
   );
 
   const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -728,6 +736,7 @@ useEffect(() => {
 
   return () => unsubscribe();
 }, []);
+
 // Example: Jab Admin broadcast bhej raha ho
 const logActivity = async (msg, type, label) => { // 1. Yahan 'label' add kiya
   try { // 2. Try block start kiya
@@ -739,6 +748,125 @@ const logActivity = async (msg, type, label) => { // 1. Yahan 'label' add kiya
     });
   } catch (e) { // 3. Catch block ab sahi se kaam karega
     console.error("Error logging activity:", e);
+  }
+};
+// useEffect(() => {
+//   // Agar koi naya log aaya hai aur uska type 'danger' hai
+//   if (logs.length > 0 && logs[0].type === 'danger') {
+    
+//     // 1. Alert Sound play karein (Siren)
+//     const audio = new Audio("https://actions.google.com/sounds/v1/alarms/emergency_it_is_an_emergency.ogg");
+//     audio.play().catch(e => console.log("Audio play blocked by browser. Click anywhere on page first."));
+
+//     // 2. Screen par bada alert dikhayein
+//     toast.error(`SOS ALERT: ${logs[0].msg}`, {
+//       duration: 10000, // 10 seconds tak dikhega
+//       position: "top-center",
+//       style: { background: '#ef4444', color: '#fff', fontWeight: '900' }
+//     });
+//   }
+// }, [logs]); // Jab bhi logs array update ho, ye check karega
+
+useEffect(() => {
+  if (!db) return;
+
+  // 1. Query: activity_log se latest records fetch karein
+  const q = query(
+    collection(db, "activity_log"),
+    orderBy("timestamp", "desc"),
+    limit(5) // Sirf top 5 check karein
+  );
+
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    snapshot.docChanges().forEach((change) => {
+      // 2. Sirf 'added' (naye) records par kaam karein
+      if (change.type === "added") {
+        const newLog = change.doc.data();
+        
+        // 3. Time check: Agar log pichle 10 seconds mein generate hua hai
+        const logTime = newLog.timestamp?.toMillis() || 0;
+        const now = Date.now();
+        const isRecent = (now - logTime) < 10000; 
+
+        if (newLog.type === "danger" && isRecent) {
+          console.log("SOS Received:", newLog.msg); // Debugging ke liye
+
+          // 🚨 SIREN & TOAST TRIGGER
+          toast.error(`SOS ALERT: ${newLog.msg}`, {
+            duration: 10000,
+            position: "top-center",
+            style: { 
+              background: '#ef4444', 
+              color: '#fff', 
+              fontWeight: '900',
+              border: '2px solid white' 
+            }
+          });
+
+          const audio = new Audio("https://actions.google.com/sounds/v1/alarms/emergency_it_is_an_emergency.ogg");
+          audio.play().catch(e => console.log("Audio Blocked: Click on screen first!"));
+        }
+      }
+    });
+  });
+
+  return () => unsubscribe();
+}, []);
+
+const handleCardClick = (type: string) => {
+  let title = "";
+  let list = [];
+
+  // Firestore se aane wali users list ko filter karein
+  // Note: 'usersList' wahi array hai jo aapke onSnapshot listener mein hai
+  const fullList = (stats as any).fullUserList || []; 
+
+  switch (type) {
+    case 'total':
+      title = "Total Registered Guests";
+      list = fullList;
+      break;
+    case 'safe':
+      title = "Evacuated & Safe Guests";
+      list = fullList.filter((u: any) => u.status === 'safe');
+      break;
+    case 'trapped':
+      title = "Trapped - High Priority Triage";
+      list = fullList.filter((u: any) => u.status === 'trapped');
+      break;
+    case 'staff':
+      title = "Active Staff Members";
+      list = fullList.filter((u: any) => u.role === 'staff');
+      break;
+  }
+
+  setModalTitle(title);
+  setFilteredUsers(list);
+  setIsStatsModalOpen(true);
+};
+
+  const assignTaskToStaff = async (staffId: string) => {
+  const floor = prompt("Enter Floor:");
+  const sector = prompt("Enter Sector:");
+  const task = prompt("Enter Task:");
+
+  if (!floor || !sector) return;
+
+  try {
+    // ✅ staffId wahi hona chahiye jo mapping mein s.id se aa raha hai
+    const staffRef = doc(db, "users", staffId); 
+    await updateDoc(staffRef, {
+      currentAssignment: {
+        floor: floor,
+        sector: sector,
+        taskType: task || "Emergency Response",
+        status: "active",
+        assignedAt: serverTimestamp()
+      }
+    });
+    toast.success("Task assigned to Sumit!");
+  } catch (error) {
+    console.error("Assignment Error:", error);
   }
 };
 
@@ -830,6 +958,86 @@ const logActivity = async (msg, type, label) => { // 1. Yahan 'label' add kiya
     </motion.div>
   </div>
 )}
+
+  {isStatsModalOpen && (
+  <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/40 backdrop-blur-md p-4">
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.95, y: 30 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95, y: 30 }}
+      className="relative bg-white/70 backdrop-blur-2xl rounded-[2.5rem] w-full max-w-2xl max-h-[80vh] overflow-hidden shadow-[0_32px_64px_-15px_rgba(0,0,0,0.3)] flex flex-col border border-white/40"
+    >
+      {/* Header with Glassy Gradient */}
+      <div className="p-8 border-b border-white/20 flex justify-between items-center bg-white/30">
+        <div>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tighter drop-shadow-sm">
+            {modalTitle}
+          </h2>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em]">Live Database Records</p>
+          </div>
+        </div>
+        <button 
+          onClick={() => setIsStatsModalOpen(false)} 
+          className="h-12 w-12 rounded-2xl bg-white/50 backdrop-blur-md shadow-inner flex items-center justify-center text-slate-500 hover:text-red-500 hover:bg-white transition-all duration-300 border border-white/60 group"
+        >
+          <X size={20} className="group-hover:rotate-90 transition-transform duration-300" />
+        </button>
+      </div>
+
+      {/* Body with Custom Glass Scrollbar */}
+      <div className="p-6 overflow-y-auto flex-1 space-y-4 custom-scrollbar bg-gradient-to-b from-transparent to-white/20">
+        {filteredUsers.length > 0 ? filteredUsers.map((user, i) => (
+          <motion.div 
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: i * 0.05 }}
+            key={user.id} 
+            className="group flex items-center justify-between p-4 bg-white/40 hover:bg-white/80 backdrop-blur-sm rounded-[1.5rem] border border-white/60 shadow-sm hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300"
+          >
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center font-black text-white shadow-lg shadow-indigo-200">
+                {user.fullName?.charAt(0) || user.name?.charAt(0) || "?"}
+              </div>
+              <div>
+                <p className="font-black text-slate-800 text-base leading-tight group-hover:text-indigo-600 transition-colors">
+                  {user.fullName || user.name || "Unknown User"}
+                </p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase mt-0.5 flex items-center gap-1">
+                  <span className="bg-slate-200 px-1.5 py-0.5 rounded text-slate-500">Room {user.room || "N/A"}</span>
+                  <span className="text-slate-300">•</span>
+                  <span>Floor {user.floor || "N/A"}</span>
+                </p>
+              </div>
+            </div>
+
+            {/* Status Badge with Glass Effect */}
+            <div className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider border shadow-sm ${
+              user.status === 'trapped' ? 'bg-red-500/10 text-red-600 border-red-200/50 backdrop-blur-md' : 
+              user.status === 'safe' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-200/50 backdrop-blur-md' : 
+              'bg-blue-500/10 text-blue-600 border-blue-200/50 backdrop-blur-md'
+            }`}>
+              {user.status || user.role}
+            </div>
+          </motion.div>
+        )) : (
+          <div className="text-center py-20 bg-white/20 rounded-[2.5rem] border border-dashed border-slate-300">
+            <div className="text-4xl mb-4">🔍</div>
+            <p className="text-slate-500 font-black text-sm uppercase tracking-widest">No Records Found</p>
+            <p className="text-slate-400 text-xs mt-1 font-medium italic">Try adjusting your filters</p>
+          </div>
+        )}
+      </div>
+      
+      {/* Bottom Glow Overlay */}
+      <div className="h-4 bg-gradient-to-t from-white/40 to-transparent pointer-events-none" />
+    </motion.div>
+  </div>
+)}
           
       
       {/* 1. TOP HEADER */}
@@ -837,11 +1045,11 @@ const logActivity = async (msg, type, label) => { // 1. Yahan 'label' add kiya
         <div className="max-w-[1400px] mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <motion.div whileHover={{ rotate: 5 }} className="h-9 w-9 bg-red-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-red-100">
-              <Shield size={18} fill="currentColor" />
+              <Shield size={16} fill="currentColor" />
             </motion.div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-tighter text-slate-400 leading-none">Sentinel</p>
-              <p className="text-sm font-black text-slate-900">Command Center</p>
+            <div className="flex flex-col">
+              <p className="text-[8px] font-black uppercase tracking-tighter text-slate-400 leading-none">Sentinel</p>
+              <p className="text-[11px] md:text-sm font-black text-slate-900 leading-none mt-0.5">Admin</p>
             </div>
             <div className="ml-4 hidden md:flex items-center gap-2 bg-emerald-50 px-3 py-1.5 rounded-full border border-emerald-100">
               <div className="h-1.5 w-1.5 bg-emerald-500 rounded-full animate-pulse" />
@@ -860,7 +1068,7 @@ const logActivity = async (msg, type, label) => { // 1. Yahan 'label' add kiya
             className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-[10px] font-black uppercase tracking-wide border border-blue-100 hover:bg-blue-100 transition-all active:scale-95">
               <Radio size={14} strokeWidth={2.5}/> Responder Link
             </button>
-            <motion.button 
+             <motion.button 
   onClick={toggleEmergencyMode}
   whileHover={{ scale: 1.02 }}
   whileTap={{ scale: 0.98 }}
@@ -869,8 +1077,9 @@ const logActivity = async (msg, type, label) => { // 1. Yahan 'label' add kiya
     ? "bg-slate-900 text-white shadow-slate-200 hover:bg-slate-800" // Stop Mode
     : "bg-red-600 text-white shadow-red-200 hover:bg-red-700 animate-pulse" // Active Mode
   }`}
->
-  {isEmergencyActive ? (
+> 
+  {/* < */}
+   {isEmergencyActive ? (
     <>
       <div className="h-2 w-2 bg-red-500 rounded-full animate-ping" />
       Stop Emergency Mode
@@ -880,7 +1089,8 @@ const logActivity = async (msg, type, label) => { // 1. Yahan 'label' add kiya
       <Siren size={14}/> Activate Emergency Mode
     </>
   )}
-</motion.button>
+</motion.button>  
+
             
             {/* <motion.button 
               // onClick={() => handleEmergencyToggle(true)}
@@ -910,7 +1120,8 @@ const logActivity = async (msg, type, label) => { // 1. Yahan 'label' add kiya
               key={s.label}
               variants={cardHover}
               whileHover="hover"
-              className={`bg-white p-4 rounded-2xl border-l-4 ${s.border} shadow-sm border border-slate-100 relative cursor-default`}
+              onClick={() => handleCardClick(s.label.toLowerCase().split(" ")[0])}
+              className={`cursor-pointer bg-white p-4 rounded-2xl border-l-4 ${s.border} shadow-sm border border-slate-100 relative cursor-default`}
             >
               <div className="flex justify-between items-start mb-1">
                 <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider leading-none">{s.label}</span>
@@ -924,6 +1135,7 @@ const logActivity = async (msg, type, label) => { // 1. Yahan 'label' add kiya
             </motion.div>
           ))}
         </div>
+        
 
         {/* 3. Trapped Guests Peek */}
         <div className="bg-red-50/40 border border-red-100 rounded-2xl p-4 shadow-sm">
@@ -984,6 +1196,7 @@ const logActivity = async (msg, type, label) => { // 1. Yahan 'label' add kiya
                  <Pencil size={14}/> {isEditMode ? 'Exit Edit Mode' : 'Edit Map / Mark Hazards'}
                </button>
             </div>
+
           </div>
           
           <div className="p-5">
@@ -1220,16 +1433,19 @@ const logActivity = async (msg, type, label) => { // 1. Yahan 'label' add kiya
   {/* Staff List */}
   <div className="space-y-4">
   {staffMembers.map((s) => {
+    const displayName = s.fullName || s.name || "New Member";
+    const displayJob = s.jobTitle || s.role || "Staff";
     // Dynamic color picker based on role
     const getTheme = (job) => {
     //   if (role === 'Security') return "from-orange-400 to-red-500";
     //   if (role === 'Medical') return "from-rose-400 to-pink-600";
     //   if (role === 'Floor Warden') return "from-blue-500 to-indigo-600";
     //   return "from-slate-400 to-slate-600";
-    const title = job?.toLowerCase(); // Case-insensitive check
-    if (title?.includes('security')) return "from-orange-400 to-red-500";
-    if (title?.includes('medical')) return "from-rose-400 to-pink-600";
-    if (title?.includes('warden')) return "from-blue-500 to-indigo-600";
+  // Unified Job Title pick karein
+  // const jobDisplay = s.jobTitle || s.roleType || "Field Staff";
+    if (s.jobTitle?.includes('security')) return "from-orange-400 to-red-500";
+    if (s.jobTitle?.includes('medical')) return "from-rose-400 to-pink-600";
+    if (s.jobTitle?.includes('warden')) return "from-blue-500 to-indigo-600";
     return "from-slate-400 to-slate-600";
     };
 const themeClass = getTheme(s.jobTitle);
@@ -1243,16 +1459,17 @@ const themeClass = getTheme(s.jobTitle);
         <div className="flex items-center gap-5">
           <div className="relative">
             <div className={`h-12 w-12 bg-gradient-to-br ${themeClass} opacity-50 rounded-2xl flex items-center justify-center text-white text-sm font-black shadow-lg rotate-3 group-hover:rotate-0 transition-transform duration-300`}>
-              {s.fullName?.charAt(0) || "U"}
+              {/* {s.fullName?.charAt(0) || "U"} */}
+              {displayName.charAt(0).toUpperCase()}
             </div>
             <div className={`absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-4 border-white ${s.status === 'on-duty' ? 'bg-emerald-500' : 'bg-slate-300'}`} />
           </div>
           
           <div>
-            <p className="text-[14px] font-black text-slate-800 tracking-tight">{s.fullName}</p>
+            <p className="text-[14px] font-black text-slate-800 tracking-tight">{displayName}</p>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="h-1 w-1 bg-slate-300 rounded-full" />
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{s.jobTitle || "Staff"}</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{displayJob}</p>
             </div>
           </div>
         </div>
@@ -1266,7 +1483,8 @@ const themeClass = getTheme(s.jobTitle);
             {s.status}
           </div>
           <button 
-      onClick={() => assignTaskToStaff(s.id, s.fullName)} // Task assignment function
+      onClick={() => assignTaskToStaff(s.id)
+      } // Task assignment function
       className="h-8 w-8 bg-slate-900 text-white rounded-lg flex items-center justify-center hover:bg-red-600 transition-all shadow-lg active:scale-95"
       title="Assign Task"
     >
