@@ -340,7 +340,7 @@ const Emergency = () => {
 
   const handleDispatch = async () => {
     try {
-      await fetch('http://localhost:5000/api/trigger-dispatch', {
+      await fetch('https://sentinel-5rnu.onrender.com/api/trigger-dispatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ incidentId: "CURRENT_INCIDENT_ID", unit: "ENGINE 14" })
